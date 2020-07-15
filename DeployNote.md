@@ -1,0 +1,192 @@
+
+# 容器化部署配置 #
+---
+## 1.CentOS 7系统简单配置 ##
+> **网络配置**
+
+	1. 查看IP地址
+			ip addr
+
+	2. 设置静态IP
+			vim /etc/sysconfig/network-scripts/ifcfg-enp6s0
+		
+		配置文件（参考）：
+			TYPE=Ethernet
+			BOOTPROTO=static        #静态ip
+			IPADDR=192.168.10.48     #ip地址
+			PREFIX="24"
+			NETMASK=255.255.255.0  #子网掩码
+			GATEWAY=192.168.10.1   #网关
+			DNS1=123.150.150.150    #DNS服务器
+			DEFROUTE=yes
+			IPV4_FAILURE_FATAL=no
+			IPV6INIT=yes
+			IPV6_AUTOCONF=yes
+			IPV6_DEFROUTE=yes
+			IPV6_PEERDNS=yes
+			IPV6_PEERROUTES=yes
+			IPV6_FAILURE_FATAL=no
+			IPV6_ADDR_GEN_MODE=stable-privacy
+			NAME=enp6s0
+			UUID=660cdd96-3b9c-483a-95e5-07ce4cc5d24e
+			DEVICE=enp6s0
+			ONBOOT=yes
+			PEERDNS=yes
+			PEERROUTES=yes
+
+	3. 验证网络设置
+			service network restart    # 重启网络
+			 ping www.baidu.com  		# 测试网络是否正常
+
+	4. 安装wget
+			yum install wget -y
+
+> **切换 yum 源**
+
+	1. 备份系统配置文件
+			cd /etc/yum.repos.d 
+			mv /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.backup
+
+	2. 下载新的CentOS-Base.repo
+			wget -O /etc/yum.repos.d/CentOS-Base.repo http://mirrors.aliyun.com/repo/Centos-7.repo
+		 	curl -o /etc/yum.repos.d/CentOS-Base.repo http://mirrors.aliyun.com/repo/Centos-7.repo
+
+	3. 更新配置
+			yum clean
+			yum makecache               # 生成缓存
+			yun update
+
+> **安装网络工具**
+
+	1. yum install net-tools -y
+
+> **更新或升级最小安装的CentOS**
+
+	1. yum update && yum upgrade
+
+## 2.Docker安装 ##
+
+> **CentOS 7操作系统配置修改**
+
+	1. 升级内核
+			rpm -Uvh http://www.elrepo.org/elrepo-release-7.0-3.el7.elrepo.noarch.rpm
+			yum --enablerepo=elrepo-kernel install -y kernel-lt
+
+	2. 查看所有内核
+			rpm -qa | grep kernel
+
+	3. 设置开机从新内核启动(版本号可修改)
+			grub2-set-default 'CentOS Linux (4.4.230-1.el7.elrepo.x86_64) 7 (Core)'
+
+	4. 查看运行的内核
+			uname -sr
+
+	5. 移除内核
+			yum remove xxxx
+
+	6. 优化系统配置
+			cat > kubernetes.conf <<EOF 
+			net.bridge.bridge-nf-call-iptables=1 
+			net.bridge.bridge-nf-call-ip6tables=1
+			net.ipv4.ip_forward=1
+			net.ipv4.tcp_tw_recycle=0
+			vm.swappiness=0 # 禁止使用 swap 空间，只有当系统 OOM 时才允许使用它 
+			vm.overcommit_memory=1 # 不检查物理内存是否够用
+			vm.panic_on_oom=0 # 开启 OOM 
+			fs.inotify.max_user_instances=8192 
+			fs.inotify.max_user_watches=1048576 
+			fs.file-max=52706963 
+			fs.nr_open=52706963 
+			net.ipv6.conf.all.disable_ipv6=1 
+			net.netfilter.nf_conntrack_max=2310720 
+			EOF
+
+	7. 将配置文件拷贝到目录
+			cp kubernetes.conf /etc/sysctl.d/kubernetes.conf
+
+	8. 生效配置
+			sysctl -p /etc/sysctl.d/kubernetes.conf
+
+> **系统参数调整**
+		
+	1. 设置系统时区为 中国/上海
+			timedatectl set-timezone Asia/Shanghai # 将当前的 UTC 时间写入硬件时钟 
+			timedatectl set-local-rtc 0
+
+	2. 重启依赖于系统时间的服务
+			systemctl restart rsyslog
+			systemctl restart crond
+	3. 关闭不需要的服务
+			systemctl stop postfix && systemctl disable postfix
+
+	4. 只保留一个日志系统，持久化保存日志的目录
+
+			mkdir /var/log/journal 
+			mkdir /etc/systemd/journald.conf.d
+
+			cat > /etc/systemd/journald.conf.d/99-prophet.conf <<EOF 
+			Storage=persistent   #持久化保存到磁盘
+			Compress=yes # 压缩历史日志 
+			SyncIntervalSec=5m
+			RateLimitInterval=30s
+			RateLimitBurst=1000
+			SystemMaxUse=10G # 最大占用空间 10G
+			SystemMaxFileSize=200M # 单日志文件最大 200M
+			MaxRetentionSec=2week # 日志保存时间 2 周 
+			syslog ForwardToSyslog=no # 不将日志转发到
+			EOF
+
+	5. 重启日志服务
+			systemctl restart systemd-journald
+
+	6. 开启IPVS
+			modprobe br_netfilter
+
+			cat > /etc/sysconfig/modules/ipvs.modules <<EOF
+			modprobe -- ip_vs    #!/bin/bash
+			modprobe -- ip_vs_rr
+			modprobe -- ip_vs_wrr
+			modprobe -- ip_vs_sh
+			modprobe -- nf_conntrack_ipv4
+			EOF
+			
+			chmod 755 /etc/sysconfig/modules/ipvs.modules && bash /etc/sysconfig/modules/ipvs.modules && lsmod | grep -e ip_vs -e nf_conntrack_ipv4
+
+> **安装Docker**
+	
+	1. 安装先决条件
+		yum install -y yum-utils device-mapper-persistent-data lvm2
+	
+	2. 关闭防火墙
+		systemctl stop firewalld
+		systemctl disable firewalld
+
+	3. 关闭SeLinux
+		setenforce 0
+		sed -i "s/SELINUX=enforcing/SELINUX=disabled/g" /etc/selinux/config
+
+	4. 设置安装Docker源
+		sudo yum-config-manager \
+		--add-repo \
+		https://download.daocloud.io/docker/linux/centos/docker-ce.repo
+
+	5. 安装Docker
+		yum update -y && yum install -y docker-ce
+
+	6. Docker加速
+		curl -sSL https://get.daocloud.io/daotools/set_mirror.sh | sh -s http://f1361db2.m.daocloud.io
+
+		也可以手动修改 /etc/docker/deamon.json
+		修改 registry-mirrors  字段的值为  https://p0yeshlc.mirror.aliyuncs.com
+
+	7. 重启docker服务
+		sudo systemctl restart docker
+
+> **安装Docker-Compose**
+
+
+		curl -L https://github.com/docker/compose/releases/download/1.24.0/docker-compose-`uname -s`-`uname -m` -o /usr/local/bin/docker-compose
+		
+		chmod +x /usr/local/bin/docker-compose
+
+	如果下载失败，可以通过xfpt进行拷贝docker-compose-Linux-x86_64文件
