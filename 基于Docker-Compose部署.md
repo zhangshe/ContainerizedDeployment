@@ -5,10 +5,10 @@
 
 	#projectname 项目名称 deployproject		xxx 可替换为redis/mysql/自定义...
 
-1. 创建部署目录
+1. 创建部署目录（可以不创建，挂载文件时会自动创建）
 		
-		mkdir -p /home/deployproject/{conf/mysql,data/mysql,log/mysql}
-		mkdir -p /home/deployproject/{conf/redis,data/redis,log/redis}
+		mkdir -p /home/deployproject/volume/{conf/mysql,data/mysql,log/mysql}
+		mkdir -p /home/deployproject/volume/{conf/redis,data/redis,log/redis}
 
 2. 创建docker-compose.yml文件并授权
 
@@ -28,7 +28,7 @@
 
 		vi docker-compose-platform.yml
 
-> **二、编写yml文件**
+> **二、编写yml文件（多个项目需要修改映射端口及容器名称）**
 
 	version: '3.1'
 	
