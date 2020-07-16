@@ -21,30 +21,32 @@
 
 > **二、编写yml文件**
 
-	version: '1.0'
+	version: '3.1'
 
 	services:
-
-	db:
-    image: mysql:5.7
-    restart: always
-	command: --default-authentication-plugin=mysql_native_password  #加密规则
-	environment:
-      MYSQL_ROOT_PASSWORD: 123456
-    volumes:
-	 - ./volume/data/mysql:/var/lib/mysql
-	 - ./volume/conf/mysql:/etc/mysql/conf.d
-	 - ./volume/log/mysql:/logs
-    ports:
-	 - 3306:3306
 	
-	redis:
-    image: redis:4.0
-    volumes:
-	 - ./volume/data/redis:/data
-	 - ./volume/conf/redis:/etc/redis/redis.conf
-    ports:
-	 - 6379:6379
+	 db:
+	  image: mysql:5.7
+	  restart: always
+	  command: --default-authentication-plugin=mysql_native_password 
+	  environment:
+	   MYSQL_ROOT_PASSWORD: 123456
+	  volumes:
+	   - ./volume/data/mysql:/var/lib/mysql
+	   - ./volume/conf/mysql:/etc/mysql/conf.d
+	   - ./volume/log/mysql:/logs
+	  ports:
+	   - 3306:3306
+	  container_name: 'mysql_db'
+	
+	 redis:
+	  image: redis:4.0
+	  volumes:
+	   - ./volume/data/redis:/data
+	   - ./volume/conf/redis:/etc/redis/redis.conf
+	  ports:
+	   - 6379:6379
+	  container_name: 'redis_1'
 
 
 > **三、运行yml文件**
